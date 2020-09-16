@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netcoreapp3.1</TargetFramework>
+    <RootNamespace>bank_service.integration</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\bank-service.integration.contract\bank-service.integration.contract.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="iHire.InvestecApi.SDK" Version="1.0.2" />
+    <PackageReference Include="StackExchange.Redis" Version="2.1.58" />
+  </ItemGroup>
+
+</Project>
