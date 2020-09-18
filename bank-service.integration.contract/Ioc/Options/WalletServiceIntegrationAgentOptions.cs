@@ -7,11 +7,11 @@ namespace bank_service.integration.contract.Ioc.Options
     {
         public string Host { get; set; }
         public int Port { get; set; }
-        public Uri WalletServiceUrl
+        public string WalletServiceUrl
         {
             get
             {
-                return new Uri($"{Host}:{Port}");
+                return ($"{Host}:{Port}");
             }
         }
         public WalletServiceIntegrationAgentOptions Value => this;

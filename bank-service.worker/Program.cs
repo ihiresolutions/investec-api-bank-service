@@ -13,6 +13,7 @@ namespace bank_service.worker
 
             // Setup DI
             var services = new ServiceCollection()
+                .AddHttpClient()
                 .AddPersistentCache(options =>
                 {
                     options.Host = "localhost";
@@ -27,7 +28,7 @@ namespace bank_service.worker
                 })
                 .AddWalletServiceIntegration(options =>
                 {
-                    options.Host = "localhost";
+                    options.Host = "http://localhost";
                     options.Port = 5000;
                 })
                 .BuildServiceProvider();

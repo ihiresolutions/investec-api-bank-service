@@ -1,12 +1,14 @@
 ﻿using bank_service.integration.contract.Agents;
 using bank_service.integration.contract.Ioc.Options;
 using bank_service.integration.contract.Models;
-using bank_service.integration.WalletServiceModels;
+using bank_service.integration.Models;
 using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
 using System;
+using System.Net;
 using System.Net.Http;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace bank_service.integration.Agents
 {
@@ -14,75 +16,108 @@ namespace bank_service.integration.Agents
     {
         #region Constructors
 
-        public WalletServiceOnTransactionFound(IOptions<WalletServiceIntegrationAgentOptions> options)
+        public WalletServiceOnTransactionFound(IOptions<WalletServiceIntegrationAgentOptions> options, 
+            IHttpClientFactory httpClientFactory)
         {
             _options = options;
+            _httpClient = httpClientFactory.CreateClient();
         }
 
         #endregion
 
         public void PerformUpdate(Transaction transaction)
         {
-            using (var httpClient = new WalletServiceHttpClient(_options.Value.WalletServiceUrl.AbsoluteUri))
+            // Check if wallet exists
+            var responseCode = GetWalletByReference(transaction.Description).Result;
+            if (responseCode == HttpStatusCode.NotFound)
             {
-                Console.WriteLine(
-                    string.Format("I will then [{0}] the wallet with the {1} BountyHunter Coins", 
-                    transaction.TransactionType, transaction.Amount));
+                Console.WriteLine("Wallet with reference [{0}] was not found", transaction.Description);
+                return;
+            }
+            if (responseCode != HttpStatusCode.OK)
+            {
+                Console.WriteLine("Unexpected Http Response: [{0}]", responseCode);
+                throw new InvalidOperationException("Cannot update wallets");
+            }
+            // Call the update method
+            Console.WriteLine("Wallet [{0}] exists. I will now [{1}] wallet with [{2}] coins", transaction.Description, transaction.TransactionType, transaction.Amount);
+            switch(transaction.TransactionType)
+            {
+                case TransactionType.Credit:
+                    {
+                        var transactionResponseCode = AddWalletCreditTransaction(transaction, transaction.Description).Result;
+                        if (transactionResponseCode != HttpStatusCode.Created)
+                        {
+                            Console.WriteLine("Error ocurred whilst crediting wallet: [{0}]", transactionResponseCode);
+                            throw new InvalidOperationException("Cannot update wallets");
+                        }
+                        Console.WriteLine("Wallet [{0}] has been credited with [{1}] coins successfully!", transaction.Description, transaction.Amount);
+                    }
+                    break;
+                case TransactionType.Debit:
+                    Console.WriteLine("Debit wallet not implemented yet");
+                    break;
+                case TransactionType.None:
+                default:
+                    Console.WriteLine("Error - Not a valid transaction type");
+                    break;
             }
         }
+
+        #region Helper Methods
+
+        private async Task<HttpStatusCode> GetWalletByReference(string reference)
+        {
+            try
+            {
+                string url = string.Format("{0}/{1}/{2}", _options.Value.WalletServiceUrl, WALLETS_RESOURCE, reference);
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Accept", "application/json");
+                var response = await _httpClient.SendAsync(request);
+                return response.StatusCode;
+            }
+            catch (Exception exception)
+            {
+                Console.WriteLine("Error: [{0}]", exception.Message);
+                return HttpStatusCode.InternalServerError;
+            }
+            
+        }
+
+        private async Task<HttpStatusCode> AddWalletCreditTransaction(Transaction transaction, string reference)
+        {
+            try
+            {
+                var json = new AddWalletTransactionDto
+                {
+                    Source = "Bank-Service",
+                    Type  = AddWalletTransactionDto.TransactionType.Credit,
+                    Amount = transaction.Amount,
+                    Currency = "ZAR",
+                    Trigger = AddWalletTransactionDto.TransactionTrigger.Bank,
+                    TransactionDate = transaction.TransactionDate
+                };
+                string url = string.Format("{0}/{1}/{2}", _options.Value.WalletServiceUrl, CREATE_CREDIT_TRANSACTION_RESOURCE, reference);
+                var transactionJson = new StringContent(JsonConvert.SerializeObject(json), Encoding.UTF8, "application/json");
+                var response = await _httpClient.PostAsync(url, transactionJson);
+                return response.StatusCode;
+            }
+            catch (Exception exception)
+            {
+                Console.WriteLine("Error: [{0}]", exception.Message);
+                return HttpStatusCode.InternalServerError;
+            }
+        }
+
+        #endregion
 
         #region Fields
 
         private IOptions<WalletServiceIntegrationAgentOptions> _options;
+        private readonly HttpClient _httpClient;
+        private const string WALLETS_RESOURCE = "api/wallet";
+        private const string CREATE_CREDIT_TRANSACTION_RESOURCE = "api/wallet/credittransaction";
 
         #endregion
-
-        /// <summary>
-        /// TODO - Build SDK for Wallet Service
-        /// </summary>
-        private class WalletServiceHttpClient : HttpClient
-        {
-            #region Constructors
-
-            public WalletServiceHttpClient(string walletServiceUrl)
-            {
-                _walletServiceUrl = walletServiceUrl;
-                this.DefaultRequestHeaders.Add("accept", "application/json");
-            }
-
-            #endregion
-
-            #region Methods
-
-            internal string GetWalletByReference(string reference)
-            {
-                return GetStringAsync(string.Format("{0}/{1}/{2}", _walletServiceUrl, WALLETS_RESOURCE, reference))
-                    .GetAwaiter().GetResult();
-            }
-
-            internal string AddWalletTransaction(AddWalletTransactionRequest walletTransactionRequest, string referenceNumber)
-            {
-                var data = new StringContent(JsonConvert.SerializeObject(walletTransactionRequest), Encoding.UTF8, "application/json");
-                var httpResponse = PostAsync(string.Format("{0}/{1}/{2}", _walletServiceUrl, CREATE_CREDIT_TRANSACTION_RESOURCE, referenceNumber), data)
-                    .GetAwaiter().GetResult();
-                if (httpResponse.IsSuccessStatusCode)
-                {
-                    return httpResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult();
-                }
-                string error = string.Format("Http CreateCreditWalletTransaction did not return a success code. [HttpStatusCode]: {0}, [ReasonPhrase]: {1}", httpResponse.StatusCode, httpResponse.ReasonPhrase);
-                Console.WriteLine(error);
-                return string.Empty;
-            }
-
-            #endregion
-
-            #region Fields
-
-            private const string WALLETS_RESOURCE = "/api/wallet";
-            private const string CREATE_CREDIT_TRANSACTION_RESOURCE = "/api/wallet/credittransaction";
-            private readonly string _walletServiceUrl;
-
-            #endregion
-        }
     }
 }
